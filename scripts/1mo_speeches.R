@@ -104,28 +104,34 @@ list_1mo_df
 
 
 
-# test new functions for scraping speech pages
-test_url <- "https://www.president.gov.ua/en/news/zvernennya-prezidenta-ukrayini-volodimira-zelenskogo-do-ucha-73801"
-
-test_session <- bow(test_url)
-
-test_page_date_info <- scrape(test_session) %>%
-  html_element(".article p") %>%
-  html_text()
-
-test_page_date_info
-
-test_page_title_info <- scrape(test_session) %>% 
-  html_element(".article h1") %>%
-  html_text()
-
-test_page_title_info
-
-test_page_body_info <- scrape(test_session) %>% 
-  html_elements(".article_content p") %>%
-  html_text2()
-
-test_page_body_info
+# # test new functions for scraping speech pages
+# test_url <- "https://www.president.gov.ua/en/news/zvernennya-prezidenta-ukrayini-volodimira-zelenskogo-do-ucha-73801"
+# 
+# test_session <- bow(test_url)
+# 
+# test_page_date_info <- scrape(test_session) %>%
+#   html_element(".article p") %>%
+#   html_text()
+# 
+# test_page_date_info
+# 
+# test_page_title_info <- scrape(test_session) %>% 
+#   html_element(".article h1") %>%
+#   html_text()
+# 
+# test_page_title_info
+# 
+# test_page_body_info <- scrape(test_session) %>% 
+#   html_elements(".article_content p") %>%
+#   html_text2()
+# 
+# test_page_body_info
+# 
+# # combine separate strings into one
+# collapsed <- test_page_body_info %>%
+#   str_c(collapse = ", ")
+# 
+# collapsed
 
 
 
@@ -150,7 +156,8 @@ page_body_info <- function(session_page) {
   
   page_body_info <- scrape(session_page) %>% 
     html_elements(".article_content p") %>%
-    html_text2()
+    html_text2() %>%
+    str_c(collapse = ", ")
 }
 
 # function to scrape data from each speech page
@@ -202,4 +209,6 @@ page_1mo_df <- page_1mo_df_ALL %>%
 # inspect
 page_1mo_df
 
+# export
+write_csv(page_1mo_df, file = 'data/page_1mo_df.csv')
 
