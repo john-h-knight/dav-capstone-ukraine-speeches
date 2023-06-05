@@ -57,6 +57,34 @@ data %>%
   count(date) %>%
   count(n)
 
+# commenting out the below because I'm reassigning id and id_day after
+# removing the languages in foreign languages
+# # add id number, represents speech number
+# data <- data %>%
+#   rowid_to_column(var = "id")
+# 
+# # add id_day number, represents speech number for a given day
+# data <- data %>%
+#   group_by(date) %>%
+#   mutate(id_day = 1:n()) %>%
+#   relocate(id_day, .after = date) %>%
+#   ungroup()
+
+# inspect
+str(data)
+
+# foreign languages -------------------------------------------------------
+
+# after plotting sentiment scores below I realized 4 speeches are not in 
+# english and need to be removed
+# id = 655, 683, 692, 697
+
+# filter out by id then reassign id and id_day
+# nrow should drop from 712 to 708
+data <- data %>%
+  filter(!(id %in% c(655, 683, 692, 697))) %>%
+  select(date, time, title, speech)
+
 # add id number, represents speech number
 data <- data %>%
   rowid_to_column(var = "id")
@@ -67,9 +95,6 @@ data <- data %>%
   mutate(id_day = 1:n()) %>%
   relocate(id_day, .after = date) %>%
   ungroup()
-
-# inspect
-str(data)
 
 # tokenize ----------------------------------------------------------------
 
@@ -96,6 +121,18 @@ skim(data_words_cleaned)
 data_words_cleaned %>%
   count(word, sort = TRUE)
 
+# wordcloud
+data_words_cleaned %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+
+# # save wordcloud
+# ggsave(filename = "plots/wordcloud100.png",
+#        width = 1000,
+#        height = 1000,
+#        units = "px",
+#        dpi = 300
+#        )
 
 # sentiment ---------------------------------------------------------------
 
@@ -111,9 +148,16 @@ data_sentiment <- data_words_cleaned %>%
 
 # plot
 data_sentiment %>%
-  ggplot(aes(x = date, y = sentiment, fill = id_day)) +
-  geom_col(position = position_dodge2(preserve = "single"), show.legend = FALSE)
+  ggplot(aes(x = date, y = sentiment)) +
+  geom_col(position = position_dodge2(preserve = "single"), 
+           show.legend = FALSE, fill = "black") +
+  scale_x_date("date",
+               date_breaks = "1 month",
+               date_labels = "%b %y",
+               minor_breaks = NULL) +
+  scale_y_continuous("sentiment score",
+                     minor_breaks = NULL) +
+  theme_minimal()
 
-
-
-
+# save plot
+ggsave("plots/sentiment_score.png")
