@@ -5,11 +5,15 @@
 
 # TO DO -------------------------------------------------------------------
 
-# 655 is in spanish
-# 683 is in german (?)
-# 692 is ???
-# 697 is ???
+# frequency over time of top words
+# KWIC for top words
+# KWIC over time for top words
+# ukraine, russian, RoW
 
+# compare to fires burning data from Economist
+
+# which speeches are most similar and most different
+# and what happened those days?
 
 
 # packages ----------------------------------------------------------------
@@ -19,6 +23,10 @@ library(tidytext)
 library(stopwords)
 library(skimr)
 library(wordcloud)
+library(quanteda)
+library(writexl)
+library(here)
+library(flextable)
 
 # create, format, arrange -------------------------------------------------
 
@@ -112,19 +120,40 @@ data_words <- data %>%
 data_words_cleaned <- data_words %>%
   anti_join(get_stopwords())
 
-# explore -----------------------------------------------------------------
+# word counts -------------------------------------------------------------
 
-# skim for overview
-skim(data_words_cleaned)
+# word count per speech
+data_words_count <- data_words %>%
+  group_by(id) %>%
+  count()
 
-# most common words
-data_words_cleaned %>%
-  count(word, sort = TRUE)
+# create df of id, date, id_day for joining
+data_id <- data %>%
+  select(id, date, id_day, time)
+
+# join and rearrange
+data_words_count <- data_words_count %>%
+  full_join(data_id, by = c("id" = "id")) %>%
+  relocate(n, .after = time)
+
+# plot
+ggplot(data_words_count, aes(x = date, y = n)) +
+  geom_col(position = position_dodge2(preserve = "single"), 
+           show.legend = FALSE, fill = "black") +
+  scale_x_date("date",
+               date_breaks = "1 month",
+               date_labels = "%b %y",
+               minor_breaks = NULL) +
+  scale_y_continuous("word count",
+                     minor_breaks = NULL) +
+  theme_minimal()
+
+# frequency ---------------------------------------------------------------
 
 # wordcloud
 data_words_cleaned %>%
   count(word) %>%
-  with(wordcloud(word, n, max.words = 100))
+  with(wordcloud(word, n, max.words = 10))
 
 # # save wordcloud
 # ggsave(filename = "plots/wordcloud100.png",
@@ -133,6 +162,40 @@ data_words_cleaned %>%
 #        units = "px",
 #        dpi = 300
 #        )
+
+# most common words
+data_words_cleaned %>%
+  count(word, sort = TRUE)
+
+# plot most common words
+data_words_cleaned %>%
+  count(word, sort = TRUE) %>%
+  slice(1:10) %>%
+  ggplot(aes(x = reorder(word, -n), y = n)) +
+  geom_col() +
+  theme_minimal()
+
+# count of "ukraine" per speech
+count_per_ukraine <- pull(data, speech) %>%
+  str_to_lower() %>%
+  str_count(pattern = "ukraine")
+
+# create tibble, join with id and dates
+data_count_ukraine <- tibble(id = 1:708, ukraine_count = count_per_ukraine) %>%
+  full_join(data_id, by = c("id" = "id")) %>%
+  relocate(ukraine_count, .after = time)
+
+# plot "ukraine" count per speech over time
+ggplot(data_count_ukraine, aes(x = date, y = ukraine_count)) +
+  geom_col(position = position_dodge2(preserve = "single"), 
+           show.legend = FALSE, fill = "black") +
+  scale_x_date("date",
+               date_breaks = "1 month",
+               date_labels = "%b %y",
+               minor_breaks = NULL) +
+  scale_y_continuous("Count of 'Ukraine'",
+                     minor_breaks = NULL) +
+  theme_minimal()
 
 # sentiment ---------------------------------------------------------------
 
@@ -161,3 +224,52 @@ data_sentiment %>%
 
 # save plot
 ggsave("plots/sentiment_score.png")
+
+# concordancing -----------------------------------------------------------
+
+# collapse speeches into one string
+data_flat <- pull(data, speech) %>%
+  str_flatten(collapse = ",", last = NULL, na.rm = FALSE) %>%
+  str_squish()
+
+# 5 pre/post words around ukraine, all speeches
+kwic_ukraine <- kwic(tokens(data_flat), pattern = "ukraine") %>%
+  as.tibble()
+
+# RoW ---------------------------------------------------------------------
+
+# import list of countries, source UN
+UN_countries <- read_delim("data/UN_countries.csv", delim = ";", 
+                           escape_double = FALSE, trim_ws = TRUE) %>%
+  select("Country or Area") %>%
+  rename(country = "Country or Area") %>%
+  add_row(country = "america") %>%
+  add_row(country = "united states")
+
+# pull and change to lowercase
+UN_countries <- pull(UN_countries, country) %>%
+  str_to_lower()
+
+# filter for speeches that match country list
+data_countries <- data_words_cleaned %>%
+  filter(word %in% UN_countries) %>%
+  filter(!(word %in% c("ukraine", "russia")))
+
+# count of countries
+data_countries %>%
+  count(word, sort = TRUE)
+
+# plot most common countries
+data_countries %>%
+  count(word, sort = TRUE) %>%
+  slice(1:10) %>%
+  ggplot(aes(x = reorder(word, -n), y = n)) +
+  geom_col() +
+  theme_minimal()
+
+# sources -----------------------------------------------------------------
+
+# list of countries from UN
+# https://unstats.un.org/unsd/methodology/m49/overview/
+
+
