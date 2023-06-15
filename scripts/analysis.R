@@ -27,6 +27,7 @@ library(quanteda)
 library(writexl)
 library(here)
 library(flextable)
+library(reshape2)
 
 # create, format, arrange -------------------------------------------------
 
@@ -155,14 +156,6 @@ data_words_cleaned %>%
   count(word) %>%
   with(wordcloud(word, n, max.words = 10))
 
-# # save wordcloud
-# ggsave(filename = "plots/wordcloud100.png",
-#        width = 1000,
-#        height = 1000,
-#        units = "px",
-#        dpi = 300
-#        )
-
 # most common words
 data_words_cleaned %>%
   count(word, sort = TRUE)
@@ -209,7 +202,7 @@ data_sentiment <- data_words_cleaned %>%
   pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
   mutate(sentiment = positive - negative)
 
-# plot
+# plot showing net sentiment
 data_sentiment %>%
   ggplot(aes(x = date, y = sentiment)) +
   geom_col(position = position_dodge2(preserve = "single"), 
@@ -224,6 +217,44 @@ data_sentiment %>%
 
 # save plot
 ggsave("plots/sentiment_score.png")
+
+# plot showing positive and negative sentiments
+data_sentiment %>%
+  mutate(neg_negative = negative*(-1)) %>%
+  ggplot(aes(x = date, y = positive)) +
+  geom_col(position = position_dodge2(preserve = "single"), 
+           show.legend = FALSE, fill = "forestgreen") +
+  geom_col(inherit.aes = FALSE, aes(x = date, y = neg_negative),
+           position = position_dodge2(preserve = "single"), 
+           show.legend = FALSE, fill = "darkred") +
+  scale_x_date("date",
+               date_breaks = "1 month",
+               date_labels = "%b %y",
+               minor_breaks = NULL) +
+  scale_y_continuous("sentiment score",
+                     minor_breaks = NULL) +
+  theme_minimal()
+
+# identify positive and negative words
+data_sentiment_words <- data_words_cleaned %>%
+  inner_join(get_sentiments("bing"),
+             by = "word",
+             relationship = "many-to-many") %>%
+  group_by(sentiment) %>%
+  count(word) %>%
+  arrange(sentiment, -n) %>%
+  slice(1:10)
+
+# wordcloud of top positive and negative words
+tidy_books %>%
+  inner_join(bing) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("#F8766D", "#00BFC4"),
+                   max.words = 100)
+
+data_sentiment_words %>%
+  acast
 
 # concordancing -----------------------------------------------------------
 
@@ -244,7 +275,11 @@ UN_countries <- read_delim("data/UN_countries.csv", delim = ";",
   select("Country or Area") %>%
   rename(country = "Country or Area") %>%
   add_row(country = "america") %>%
-  add_row(country = "united states")
+  add_row(country = "united states") %>%
+  add_row(country = "united kingdom") %>%
+  add_row(country = "great britain") %>%
+  add_row(country = "britain") %>%
+  add_row(country = "england")
 
 # pull and change to lowercase
 UN_countries <- pull(UN_countries, country) %>%
@@ -259,13 +294,22 @@ data_countries <- data_words_cleaned %>%
 data_countries %>%
   count(word, sort = TRUE)
 
-# plot most common countries
+# plot of top 10 most common countries
 data_countries %>%
   count(word, sort = TRUE) %>%
   slice(1:10) %>%
   ggplot(aes(x = reorder(word, -n), y = n)) +
   geom_col() +
   theme_minimal()
+
+# plot of countries mentioned at least 10 times
+data_countries %>%
+  count(word, sort = TRUE) %>%
+  filter(n >= 10) %>%
+  ggplot(aes(x = reorder(word, n), y = n)) +
+  geom_col() +
+  theme_minimal() +
+  coord_flip()
 
 # sources -----------------------------------------------------------------
 
