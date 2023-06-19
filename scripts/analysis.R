@@ -270,6 +270,8 @@ data_sentiment_words %>%
 #                            pattern = phrase("united states")) %>%
 #   as_tibble()
 
+# KWIC prep using quanteda ------------------------------------------------
+
 # create a corpus using data for KWIC
 data_corpus <- data %>%
   select(id, date, id_day, speech) %>%
@@ -291,6 +293,9 @@ data_tokens <- tokens(data_corpus, remove_punct = TRUE) %>%
 # remove stopwords
 data_tokens_nostop <- tokens_remove(data_tokens, pattern = stopwords("en"))
 
+
+# KWIC ukraine with sentiment and frequency -------------------------------
+
 # # KWIC ukraine
 # data_kwic_ukraine <- kwic(data_tokens_nostop, pattern = "ukraine")
 
@@ -299,6 +304,57 @@ data_kwic_ukrainwc <- kwic(data_tokens_nostop, pattern = "ukrain*") %>%
   as_tibble() %>%
   select(!c(from, to, pattern)) %>%
   full_join(data_kwic_join, by = c("docname" = "doc_id"))
+
+# combine pre and post words into one string
+data_kwic_ukrainwc_combined <- data_kwic_ukrainwc %>%
+  mutate(combined = paste(pre, post, sep = " ")) %>%
+  select(id, date, id_day, combined, keyword)
+
+# unnest single words from KIWC and place in own row
+data_kwic_ukrainwc_unnest <- data_kwic_ukrainwc_combined %>%
+  unnest_tokens(output = word,
+                input = combined,
+                token = "words",
+                drop = TRUE
+  )
+
+# calculate net sentiment score for each speech
+data_kwic_ukrainwc_sentiment <- data_kwic_ukrainwc_unnest %>%
+  inner_join(get_sentiments("bing"),
+             by = "word",
+             relationship = "many-to-many"
+  ) %>%
+  count(id, date, id_day, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+# plot showing net sentiment
+data_kwic_ukrainwc_sentiment %>%
+  ggplot(aes(x = date, y = sentiment)) +
+  geom_col(position = position_dodge2(preserve = "single"), 
+           show.legend = FALSE, fill = "black") +
+  scale_x_date("date",
+               date_breaks = "1 month",
+               date_labels = "%b %y",
+               minor_breaks = NULL) +
+  scale_y_continuous("sentiment score",
+                     minor_breaks = NULL) +
+  theme_minimal()
+
+# most common words
+data_kwic_ukrainwc_unnest %>%
+  count(word, sort = TRUE)
+
+# plot most common words
+data_kwic_ukrainwc_unnest %>%
+  count(word, sort = TRUE) %>%
+  slice(1:50) %>%
+  ggplot(aes(x = reorder(word, n), y = n)) +
+  geom_col() +
+  theme_minimal() +
+  coord_flip()
+
+# KWIC russia with sentiment and frequency --------------------------------
 
 # # KWIC russia
 # data_kwic_russia <- kwic(data_tokens_nostop, pattern = "russia")
@@ -309,16 +365,54 @@ data_kwic_russiawc <- kwic(data_tokens_nostop, pattern = "russia*") %>%
   select(!c(from, to, pattern)) %>%
   full_join(data_kwic_join, by = c("docname" = "doc_id"))
 
+# combine pre and post words into one string
+data_kwic_russiawc_combined <- data_kwic_russiawc %>%
+  mutate(combined = paste(pre, post, sep = " ")) %>%
+  select(id, date, id_day, combined, keyword)
+
 # unnest single words from KIWC and place in own row
-data_kwic_russiawc_unnest <- data_kwic_russiawc %>%
-  select(id, date, id_day, pre, keyword, post) %>%
+data_kwic_russiawc_unnest <- data_kwic_russiawc_combined %>%
   unnest_tokens(output = word,
-                input = pre,
+                input = combined,
                 token = "words",
                 drop = TRUE
   )
 
+# calculate net sentiment score for each speech
+data_kwic_russiawc_sentiment <- data_kwic_russiawc_unnest %>%
+  inner_join(get_sentiments("bing"),
+             by = "word",
+             relationship = "many-to-many"
+  ) %>%
+  count(id, date, id_day, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
+  mutate(sentiment = positive - negative)
 
+# plot showing net sentiment
+data_kwic_russiawc_sentiment %>%
+  ggplot(aes(x = date, y = sentiment)) +
+  geom_col(position = position_dodge2(preserve = "single"), 
+           show.legend = FALSE, fill = "black") +
+  scale_x_date("date",
+               date_breaks = "1 month",
+               date_labels = "%b %y",
+               minor_breaks = NULL) +
+  scale_y_continuous("sentiment score",
+                     minor_breaks = NULL) +
+  theme_minimal()
+
+# most common words
+data_kwic_russiawc_unnest %>%
+  count(word, sort = TRUE)
+
+# plot most common words
+data_kwic_russiawc_unnest %>%
+  count(word, sort = TRUE) %>%
+  slice(1:50) %>%
+  ggplot(aes(x = reorder(word, n), y = n)) +
+  geom_col() +
+  theme_minimal() +
+  coord_flip()
 
 # RoW ---------------------------------------------------------------------
 
