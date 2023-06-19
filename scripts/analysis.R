@@ -15,6 +15,9 @@
 # which speeches are most similar and most different
 # and what happened those days?
 
+# country count is off because it's not finding the phrase "united states"
+# could be resolved using tokens_compound()
+
 
 # packages ----------------------------------------------------------------
 
@@ -246,26 +249,76 @@ data_sentiment_words <- data_words_cleaned %>%
   slice(1:10)
 
 # wordcloud of top positive and negative words
-tidy_books %>%
-  inner_join(bing) %>%
-  count(word, sentiment, sort = TRUE) %>%
+data_sentiment_words %>%
   acast(word ~ sentiment, value.var = "n", fill = 0) %>%
   comparison.cloud(colors = c("#F8766D", "#00BFC4"),
                    max.words = 100)
 
-data_sentiment_words %>%
-  acast
-
 # concordancing -----------------------------------------------------------
 
-# collapse speeches into one string
-data_flat <- pull(data, speech) %>%
-  str_flatten(collapse = ",", last = NULL, na.rm = FALSE) %>%
-  str_squish()
+# # collapse speeches into one string
+# data_flat <- pull(data, speech) %>%
+#   str_flatten(collapse = ",", last = NULL, na.rm = FALSE) %>%
+#   str_squish()
+# 
+# # 5 pre/post words around ukraine, all speeches
+# kwic_ukraine <- kwic(tokens(data_flat), pattern = "ukraine") %>%
+#   as_tibble()
+# 
+# # 5 pre/post words around united states, all speeches
+# kwic_united_states <- kwic(tokens(data_flat), 
+#                            pattern = phrase("united states")) %>%
+#   as_tibble()
 
-# 5 pre/post words around ukraine, all speeches
-kwic_ukraine <- kwic(tokens(data_flat), pattern = "ukraine") %>%
-  as.tibble()
+# create a corpus using data for KWIC
+data_corpus <- data %>%
+  select(id, date, id_day, speech) %>%
+  corpus(text_field = "speech")
+
+# verify docvars
+docvars(data_corpus)
+
+# convert corpus to tibble for joining the docvars with the KWIC tibbles
+data_kwic_join <- data_corpus %>%
+  convert(to = "data.frame") %>%
+  as_tibble() %>%
+  select(!text)
+
+# create tokens from corpus
+data_tokens <- tokens(data_corpus, remove_punct = TRUE) %>%
+  tokens_tolower()
+
+# remove stopwords
+data_tokens_nostop <- tokens_remove(data_tokens, pattern = stopwords("en"))
+
+# # KWIC ukraine
+# data_kwic_ukraine <- kwic(data_tokens_nostop, pattern = "ukraine")
+
+# KWIC ukrain*
+data_kwic_ukrainwc <- kwic(data_tokens_nostop, pattern = "ukrain*") %>%
+  as_tibble() %>%
+  select(!c(from, to, pattern)) %>%
+  full_join(data_kwic_join, by = c("docname" = "doc_id"))
+
+# # KWIC russia
+# data_kwic_russia <- kwic(data_tokens_nostop, pattern = "russia")
+
+# KWIC russia*
+data_kwic_russiawc <- kwic(data_tokens_nostop, pattern = "russia*") %>%
+  as_tibble() %>%
+  select(!c(from, to, pattern)) %>%
+  full_join(data_kwic_join, by = c("docname" = "doc_id"))
+
+# unnest single words from KIWC and place in own row
+data_kwic_russiawc_unnest <- data_kwic_russiawc %>%
+  select(id, date, id_day, pre, keyword, post) %>%
+  unnest_tokens(output = word,
+                input = pre,
+                token = "words",
+                drop = TRUE
+  )
+
+
 
 # RoW ---------------------------------------------------------------------
 
@@ -291,7 +344,7 @@ data_countries <- data_words_cleaned %>%
   filter(!(word %in% c("ukraine", "russia")))
 
 # count of countries
-data_countries %>%
+data_countries_counts <- data_countries %>%
   count(word, sort = TRUE)
 
 # plot of top 10 most common countries
@@ -311,9 +364,18 @@ data_countries %>%
   theme_minimal() +
   coord_flip()
 
+# counts above don't work for "united states" because data_words_cleaned is
+# tokenized as single words
+# returns 0
+str_count(data_flat, pattern = "united states")
+
 # sources -----------------------------------------------------------------
 
 # list of countries from UN
 # https://unstats.un.org/unsd/methodology/m49/overview/
+
+# tidytext package
+
+# quanteda package
 
 
