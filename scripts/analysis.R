@@ -328,6 +328,10 @@ data_kwic_ukrainwc_sentiment <- data_kwic_ukrainwc_unnest %>%
   pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
   mutate(sentiment = positive - negative)
 
+# export for other viz tools
+write_csv(data_kwic_ukrainwc_sentiment, 
+          file = 'data/kwic_ukraine_sentiment.csv')
+
 # plot showing net sentiment
 data_kwic_ukrainwc_sentiment %>%
   ggplot(aes(x = date, y = sentiment)) +
@@ -339,6 +343,7 @@ data_kwic_ukrainwc_sentiment %>%
                minor_breaks = NULL) +
   scale_y_continuous("sentiment score",
                      minor_breaks = NULL) +
+  labs(title = "Sentiment when talking about Ukraine") +
   theme_minimal()
 
 # most common words
@@ -388,6 +393,10 @@ data_kwic_russiawc_sentiment <- data_kwic_russiawc_unnest %>%
   pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
   mutate(sentiment = positive - negative)
 
+# export for other viz tools
+write_csv(data_kwic_russiawc_sentiment, 
+          file = 'data/kwic_russia_sentiment.csv')
+
 # plot showing net sentiment
 data_kwic_russiawc_sentiment %>%
   ggplot(aes(x = date, y = sentiment)) +
@@ -399,6 +408,7 @@ data_kwic_russiawc_sentiment %>%
                minor_breaks = NULL) +
   scale_y_continuous("sentiment score",
                      minor_breaks = NULL) +
+  labs(title = "Sentiment when talking about Russia") +
   theme_minimal()
 
 # most common words
@@ -440,6 +450,9 @@ data_countries <- data_words_cleaned %>%
 # count of countries
 data_countries_counts <- data_countries %>%
   count(word, sort = TRUE)
+
+# export for other viz tools
+write_csv(data_countries_counts, file = 'data/country_counts.csv')
 
 # plot of top 10 most common countries
 data_countries %>%
