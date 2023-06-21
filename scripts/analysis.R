@@ -31,6 +31,7 @@ library(writexl)
 library(here)
 library(flextable)
 library(reshape2)
+library(textdata)
 
 # create, format, arrange -------------------------------------------------
 
@@ -254,6 +255,33 @@ data_sentiment_words %>%
   comparison.cloud(colors = c("#F8766D", "#00BFC4"),
                    max.words = 100)
 
+# calculate net sentiment score for each speech
+data_emotions <- data_words_cleaned %>%
+  inner_join(get_sentiments("nrc"),
+             by = "word",
+             relationship = "many-to-many"
+  )
+
+# number of words by emotion
+data_emotions %>%
+  count(sentiment, sort = TRUE)
+
+# plot emotions
+data_emotions %>%
+  count(word, sentiment, sort = TRUE) %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 5) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  theme_light() +
+  labs(title = "Emotional Words in Zelenskyy's Speeches",
+       subtitle = "Top 5 words, NRC lexicon",
+       x = NULL,
+       y = NULL)
+
 # concordancing -----------------------------------------------------------
 
 # # collapse speeches into one string
@@ -423,6 +451,15 @@ data_kwic_russiawc_unnest %>%
   geom_col() +
   theme_minimal() +
   coord_flip()
+
+
+
+
+# -------------------------------------------------------------------------
+
+
+
+
 
 # RoW ---------------------------------------------------------------------
 
