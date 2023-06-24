@@ -249,6 +249,14 @@ data_sentiment_words <- data_words_cleaned %>%
   arrange(sentiment, -n) %>%
   slice(1:10)
 
+# plot top positive and negative words
+data_sentiment_words %>%
+  ggplot(aes(x = n, y = reorder(word, n), fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(vars(sentiment), scales = "free_y") +
+  labs(x = "Contribution to sentiment", y = NULL) +
+  theme_minimal()
+
 # wordcloud of top positive and negative words
 data_sentiment_words %>%
   acast(word ~ sentiment, value.var = "n", fill = 0) %>%
@@ -281,6 +289,25 @@ data_emotions %>%
        subtitle = "Top 5 words, NRC lexicon",
        x = NULL,
        y = NULL)
+
+
+# top negative words ------------------------------------------------------
+
+# plot "aggression" count per speech over time
+ggplot(data_count_ukraine, aes(x = date, y = ukraine_count)) +
+  geom_col(position = position_dodge2(preserve = "single"), 
+           show.legend = FALSE, fill = "black") +
+  scale_x_date("date",
+               date_breaks = "1 month",
+               date_labels = "%b %y",
+               minor_breaks = NULL) +
+  scale_y_continuous("Count of 'Ukraine'",
+                     minor_breaks = NULL) +
+  theme_minimal()
+
+
+
+
 
 # concordancing -----------------------------------------------------------
 
@@ -455,11 +482,30 @@ data_kwic_russiawc_unnest %>%
 
 
 
-# -------------------------------------------------------------------------
+# KWIC support ------------------------------------------------------------
 
+# KWIC support
+data_kwic_support <- kwic(data_tokens_nostop, pattern = "support") %>%
+  as_tibble() %>%
+  select(!c(from, to, pattern)) %>%
+  full_join(data_kwic_join, by = c("docname" = "doc_id"))
 
+# combine pre and post words into one string
+data_kwic_support_combined <- data_kwic_support %>%
+  mutate(combined = paste(pre, post, sep = " ")) %>%
+  select(id, date, id_day, combined, keyword)
 
+# unnest single words from KIWC and place in own row
+data_kwic_support_unnest <- data_kwic_support_combined %>%
+  unnest_tokens(output = word,
+                input = combined,
+                token = "words",
+                drop = TRUE
+  )
 
+# top words used with support
+data_kwic_support_unnest %>%
+  count(word, sort = TRUE)
 
 # RoW ---------------------------------------------------------------------
 
