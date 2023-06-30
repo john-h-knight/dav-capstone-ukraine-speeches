@@ -127,6 +127,12 @@ data_words_cleaned <- data_words %>%
 
 # word counts -------------------------------------------------------------
 
+# count unique words
+data_words_cleaned %>%
+  count(word, sort = TRUE) %>%
+  filter(n >= 100) %>%
+  print(n = 1000)
+
 # word count per speech
 data_words_count <- data_words %>%
   group_by(id) %>%
@@ -141,7 +147,10 @@ data_words_count <- data_words_count %>%
   full_join(data_id, by = c("id" = "id")) %>%
   relocate(n, .after = time)
 
-# plot
+# export for other viz tools
+write_csv(data_words_count, file = 'data/words_count.csv')
+
+# plot of word count
 ggplot(data_words_count, aes(x = date, y = n)) +
   geom_col(position = position_dodge2(preserve = "single"), 
            show.legend = FALSE, fill = "black") +
@@ -152,6 +161,19 @@ ggplot(data_words_count, aes(x = date, y = n)) +
   scale_y_continuous("word count",
                      minor_breaks = NULL) +
   theme_minimal()
+
+# plot of speeches and word count
+ggplot(data_words_count, aes(x = date, y = n)) +
+  geom_point() +
+  theme_minimal()
+
+
+
+ggplot(data_words_count) +
+ aes(x = date, y = id_day, size = n) +
+ geom_point(shape = "square", colour = "#112446") +
+ theme_minimal()
+
 
 # frequency ---------------------------------------------------------------
 
@@ -205,6 +227,20 @@ data_sentiment <- data_words_cleaned %>%
   count(id, date, id_day, sentiment) %>%
   pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
   mutate(sentiment = positive - negative)
+
+
+# is destroyed not in the bing library?
+data_sentiment_singles <- data_words_cleaned %>%
+  inner_join(get_sentiments("bing"),
+             by = "word",
+             relationship = "many-to-many") %>%
+  filter(word == "destroy")
+
+# is destroyed not in the bing library?
+get_sentiments("bing") %>%
+  slice(1400:1500) %>%
+  print(n = 100)
+
 
 # plot showing net sentiment
 data_sentiment %>%
@@ -505,7 +541,38 @@ data_kwic_support_unnest <- data_kwic_support_combined %>%
 
 # top words used with support
 data_kwic_support_unnest %>%
-  count(word, sort = TRUE)
+  count(word, sort = TRUE) %>%
+  slice(1:50) %>%
+  print(n = 50)
+
+
+
+# KWIC killed -------------------------------------------------------------
+
+# create tibble
+data_kwic_killed <- kwic(data_tokens_nostop, pattern = "killed") %>%
+  as_tibble() %>%
+  select(!c(from, to, pattern)) %>%
+  full_join(data_kwic_join, by = c("docname" = "doc_id"))
+
+# combine pre and post words into one string
+data_kwic_killed_combined <- data_kwic_killed %>%
+  mutate(combined = paste(pre, post, sep = " ")) %>%
+  select(id, date, id_day, combined, keyword)
+
+# unnest single words from KIWC and place in own row
+data_kwic_killed_unnest <- data_kwic_killed_combined %>%
+  unnest_tokens(output = word,
+                input = combined,
+                token = "words",
+                drop = TRUE
+  )
+
+# top words used with support
+data_kwic_killed_unnest %>%
+  count(word, sort = TRUE) %>%
+  slice(1:50) %>%
+  print(n = 50)
 
 # RoW ---------------------------------------------------------------------
 
