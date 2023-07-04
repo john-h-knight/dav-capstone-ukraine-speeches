@@ -12,6 +12,8 @@ library(stopwords)
 library(skimr)
 library(wordcloud)
 library(quanteda)
+library(quanteda.textplots)
+library(quanteda.textstats)
 library(writexl)
 library(here)
 library(flextable)
@@ -92,18 +94,29 @@ data_corpus <- data %>%
 # verify docvars
 docvars(data_corpus)
 
-# convert corpus to tibble for joining the docvars with the KWIC tibbles
-data_kwic_join <- data_corpus %>%
-  convert(to = "data.frame") %>%
-  as_tibble() %>%
-  select(!text)
-
 # create tokens from corpus
 data_tokens <- tokens(data_corpus, remove_punct = TRUE) %>%
   tokens_tolower()
 
 # remove stopwords
 data_tokens_nostop <- tokens_remove(data_tokens, pattern = stopwords("en"))
+
+# create a document-feature matrix (DFM) from the tokens object
+dfm <- dfm(data_tokens_nostop)
+
+# inspect
+print(dfm)
+
+# # most frequent features (same as most common words)
+# topfeatures(dfm)
+
+
+
+# convert corpus to tibble for joining the docvars with the KWIC tibbles
+data_kwic_join <- data_corpus %>%
+  convert(to = "data.frame") %>%
+  as_tibble() %>%
+  select(!text)
 
 # speech word counts ------------------------------------------------------
 
@@ -141,6 +154,11 @@ ggplot(data_words_count, aes(x = date, y = n)) +
   geom_point() +
   theme_minimal()
 
+# scatter plot of word count by speech
+ggplot(data_words_count, aes(x = date, y = n)) +
+  geom_line() +
+  theme_minimal()
+
 # frequency ---------------------------------------------------------------
 
 # most common words
@@ -155,12 +173,19 @@ data_words_cleaned %>%
   geom_col() +
   theme_minimal()
 
-
-
 # words used at least 100 times
 data_words_100x <- data_words_cleaned %>%
   count(word, sort = TRUE) %>%
   filter(n >= 100) %>%
+  print(n = 1000)
+
+# export for other viz tools
+write_csv(data_words_100x, file = 'data/words_100x.csv')
+
+# words used only once
+data_words_cleaned %>%
+  count(word, sort = FALSE) %>%
+  filter(n == 1) %>%
   print(n = 1000)
 
 # sentiment ---------------------------------------------------------------
@@ -183,11 +208,6 @@ data_sentiment_words %>%
   labs(x = "Contribution to sentiment", y = NULL) +
   theme_minimal()
 
-
-
-
-
-
 # make bing library a character vector that can be searched
 bing <- get_sentiments("bing") 
 # %>%
@@ -199,18 +219,11 @@ bing %>%
   str_detect("strike")
 
 # see which top words are not in the bing library
+# 631 of the 722 words used at least 100x are not in the bing library
 not_bing <- data_words_100x %>%
   anti_join(bing, by = c("word" = "word"))
 
-
-# 599 of the 687 words used at least 100x are not in the bing library
-
-
-
-
-
-
-# Countries ---------------------------------------------------------------
+# countries ---------------------------------------------------------------
 
 # import list of countries, source UN
 UN_countries <- read_delim("data/UN_countries.csv", delim = ";", 
@@ -264,3 +277,63 @@ str_count(data_flat, pattern = "united states")
 
 
 
+
+
+# networks ----------------------------------------------------------------
+
+# create a feature co-occurrence matrix (FCM) using the DFM
+fcm <- dfm %>%
+  dfm_trim(min_termfreq = 100) %>% # removes words used less than 100x
+  fcm()
+
+# inspect
+print(fcm)
+
+
+# from quanteda tutorial
+# most frequently co-occurring words
+feat <- names(topfeatures(fcm, 20))
+
+# select features for network plot using feat
+fcm_select <- fcm %>%
+  fcm_select(pattern = feat, selection = "keep")
+
+# inspect
+dim(fcm_select)
+print(fcm_select)
+
+size <- log(colSums(dfm_select(dfm, feat, selection = "keep")))
+
+fcm_select %>% 
+  textplot_network(min_freq = 0.5,
+                   vertex_size = size / max(size)*3)
+
+
+
+# from LADAL tutorial
+fcm_select %>%
+  textplot_network(min_freq = 0.1,
+                   edge_alpha = 0.5,
+                   edge_color = "purple",
+                   vertex_labelsize = log(rowSums(fcm_select)),
+                   edge_size = 2)
+
+
+
+
+?textplot_network
+
+
+
+fcm[, "killed"]
+
+fcm[, c("killed", "wounded", "died")]
+
+
+
+# n-grams -----------------------------------------------------------------
+
+textstat_collocations(data_tokens, min_count = 100, size = 2)
+
+test <- textstat_collocations(data_tokens_nostop, min_count = 50, size = 2) %>%
+  as.data.frame()
