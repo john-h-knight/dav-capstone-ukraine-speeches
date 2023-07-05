@@ -568,7 +568,7 @@ data_kwic_killed_unnest <- data_kwic_killed_combined %>%
                 drop = TRUE
   )
 
-# top words used with support
+# top words used with killed
 data_kwic_killed_unnest %>%
   count(word, sort = TRUE) %>%
   slice(1:50) %>%

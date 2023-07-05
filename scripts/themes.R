@@ -9,16 +9,16 @@
 library(tidyverse)
 library(tidytext)
 library(stopwords)
-library(skimr)
-library(wordcloud)
 library(quanteda)
 library(quanteda.textplots)
 library(quanteda.textstats)
-library(writexl)
-library(here)
-library(flextable)
-library(reshape2)
-library(textdata)
+# library(skimr)
+# library(wordcloud)
+# library(writexl)
+# library(here)
+# library(flextable)
+# library(reshape2)
+# library(textdata)
 
 # reminder ----------------------------------------------------------------
 
@@ -110,13 +110,11 @@ print(dfm)
 # # most frequent features (same as most common words)
 # topfeatures(dfm)
 
-
-
-# convert corpus to tibble for joining the docvars with the KWIC tibbles
-data_kwic_join <- data_corpus %>%
-  convert(to = "data.frame") %>%
-  as_tibble() %>%
-  select(!text)
+# # convert corpus to tibble for joining the docvars with the KWIC tibbles
+# data_corpus_df <- data_corpus %>%
+#   convert(to = "data.frame") %>%
+#   as_tibble() %>%
+#   select(!text)
 
 # speech word counts ------------------------------------------------------
 
@@ -331,9 +329,70 @@ fcm[, c("killed", "wounded", "died")]
 
 
 
+# load function for co-occurrence calculation
+source("https://slcladal.github.io/rscripts/calculateCoocStatistics.R")
+
+# define term
+coocTerm <- "thank"
+
+# calculate co-occurrence statistics
+coocs <- calculateCoocStatistics(coocTerm, dfm, measure = "LOGLIK")
+
+# inspect results
+coocs[1:20]
+
+# select from dfm using coocs and target word "thank"
+dfm_thank <- dfm_select(dfm,
+                        pattern = c(names(coocs)[1:20], "thank"))
+
+# create fcm from dfm
+fcm_thank <- fcm(dfm_thank)
+
+# inspect
+print(fcm_thank)
+
+# plot
+textplot_network(fcm_thank, 
+                 min_freq = 5, 
+                 edge_alpha = 0.1, 
+                 edge_size = 5,
+                 edge_color = "purple",
+                 vertex_labelsize = log(colSums(fcm_thank)))
+
+
 # n-grams -----------------------------------------------------------------
 
-textstat_collocations(data_tokens, min_count = 100, size = 2)
+# create a tbl of bigrams
+bigrams <- textstat_collocations(data_tokens, 
+                               min_count = 10, 
+                               size = 2) %>%
+  as_tibble()
 
-test <- textstat_collocations(data_tokens_nostop, min_count = 50, size = 2) %>%
-  as.data.frame()
+# search for bigrams that contain "russian"
+bigrams_russian <- bigrams[grepl("russian", bigrams$collocation), ]
+
+# create a tbl of trigrams
+trigrams <- textstat_collocations(data_tokens, 
+                                  min_count = 10, 
+                                  size = 3) %>%
+  as_tibble()
+
+# search for trigrams that contain "killed"
+trigrams_killed <- trigrams[grepl("killed", trigrams$collocation), ]
+
+# create a tbl of quadgrams
+quadgrams <- textstat_collocations(data_tokens, 
+                                 min_count = 10, 
+                                 size = 4) %>%
+  as_tibble()
+
+# kwic --------------------------------------------------------------------
+
+kwic_killed <- kwic(data_tokens, pattern = "killed")
+
+kwic_wounded <- kwic(data_tokens, pattern = "wounded")
+
+kwic_peace <- kwic(data_tokens, pattern = "peace")
+
+kwic_iamgratefulto <- kwic(data_tokens, pattern = phrase("i am grateful to"))
+
