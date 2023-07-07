@@ -110,11 +110,11 @@ print(dfm)
 # # most frequent features (same as most common words)
 # topfeatures(dfm)
 
-# # convert corpus to tibble for joining the docvars with the KWIC tibbles
-# data_corpus_df <- data_corpus %>%
-#   convert(to = "data.frame") %>%
-#   as_tibble() %>%
-#   select(!text)
+# convert corpus to tibble for joining the docvars with the KWIC tibbles
+data_corpus_tbl <- data_corpus %>%
+  convert(to = "data.frame") %>%
+  as_tibble() %>%
+  select(!text)
 
 # speech word counts ------------------------------------------------------
 
@@ -388,11 +388,102 @@ quadgrams <- textstat_collocations(data_tokens,
 
 # kwic --------------------------------------------------------------------
 
+kwic_ukraine <- kwic(data_tokens, pattern = "ukraine")
+
 kwic_killed <- kwic(data_tokens, pattern = "killed")
 
 kwic_wounded <- kwic(data_tokens, pattern = "wounded")
 
+kwic_destroyed <- kwic(data_tokens, pattern = "destroyed")
+
 kwic_peace <- kwic(data_tokens, pattern = "peace")
+
+kwic_thankyou <- kwic(data_tokens, pattern = phrase("thank you"))
 
 kwic_iamgratefulto <- kwic(data_tokens, pattern = phrase("i am grateful to"))
 
+kwic_heroofukraine <- kwic(data_tokens, pattern = phrase("hero of ukraine"))
+
+# loss --------------------------------------------------------------------
+
+
+loss <- data[grepl("killed", data$speech),]
+
+loss2 <- data_words_cleaned[grepl("killed", data_words_cleaned$word)]
+
+
+
+
+# grateful ----------------------------------------------------------------
+
+# convert kwic results to tbl and add docvars
+grateful <- kwic_iamgratefulto %>%
+  as_tibble() %>%
+  select(!c(from, to, pattern)) %>%
+  full_join(data_corpus_tbl, by = c("docname" = "doc_id"))
+
+# # combine pre and post words into one string
+# grateful_combined <- grateful %>%
+#   mutate(combined = paste(pre, post, sep = " ")) %>%
+#   select(id, date, id_day, combined, keyword)
+
+# create tokens from post words
+grateful_tokens <- grateful %>%
+  unnest_tokens(output = word,
+                input = post,
+                token = "words",
+                drop = TRUE
+  )
+
+# remove stop words
+grateful_tokens_clean <- grateful_tokens %>%
+  anti_join(get_stopwords())
+
+# most frequent words
+grateful_tokens_clean %>%
+  count(word, sort = TRUE) %>%
+  print(n = 100)
+
+
+
+
+# thank you ---------------------------------------------------------------
+
+# convert kwic results to tbl and add docvars
+thankyou <- kwic_thankyou %>%
+  as_tibble() %>%
+  select(!c(from, to, pattern)) %>%
+  full_join(data_corpus_tbl, by = c("docname" = "doc_id"))
+
+# # combine pre and post words into one string
+# grateful_combined <- grateful %>%
+#   mutate(combined = paste(pre, post, sep = " ")) %>%
+#   select(id, date, id_day, combined, keyword)
+
+# create tokens from post words
+thankyou_tokens <- thankyou %>%
+  unnest_tokens(output = word,
+                input = post,
+                token = "words",
+                drop = TRUE
+  )
+
+# remove stop words
+thankyou_tokens_clean <- thankyou_tokens %>%
+  anti_join(get_stopwords())
+
+# most frequent words
+thankyou_tokens_clean %>%
+  count(word, sort = TRUE) %>%
+  print(n = 100)
+
+
+# russian -----------------------------------------------------------------
+
+russian <- bigrams_russian %>%
+  arrange(collocation) %>%
+  rowid_to_column() %>%
+  filter(rowid %in% c(26:81)) %>%
+  select(collocation, count) %>%
+  arrange(-count)
+  
