@@ -10,8 +10,8 @@ library(tidyverse)
 library(tidytext)
 library(stopwords)
 library(quanteda)
-library(quanteda.textplots)
 library(quanteda.textstats)
+# library(quanteda.textplots)
 # library(skimr)
 # library(wordcloud)
 # library(writexl)
@@ -68,6 +68,9 @@ data_june <- data_june %>%
 # combine data and data_june to create full df
 data <- bind_rows(data, data_june)
 
+# export for other tools
+write_csv(data, file = 'data/speeches.csv')
+
 # tidytext prep -----------------------------------------------------------
 
 # unnest single words from speech and place in own row
@@ -95,7 +98,7 @@ data_corpus <- data %>%
 docvars(data_corpus)
 
 # create tokens from corpus
-data_tokens <- tokens(data_corpus, remove_punct = TRUE) %>%
+data_tokens <- tokens(data_corpus, remove_punct = FALSE) %>%
   tokens_tolower()
 
 # remove stopwords
@@ -227,13 +230,14 @@ not_bing <- data_words_100x %>%
 UN_countries <- read_delim("data/UN_countries.csv", delim = ";", 
                            escape_double = FALSE, trim_ws = TRUE) %>%
   select("Country or Area") %>%
-  rename(country = "Country or Area") %>%
-  add_row(country = "america") %>%
-  add_row(country = "united states") %>%
-  add_row(country = "united kingdom") %>%
-  add_row(country = "great britain") %>%
-  add_row(country = "britain") %>%
-  add_row(country = "england")
+  rename(country = "Country or Area") 
+  # %>%
+  # add_row(country = "america") %>%
+  # add_row(country = "united states") %>%
+  # add_row(country = "united kingdom") %>%
+  # add_row(country = "great britain") %>%
+  # add_row(country = "britain") %>%
+  # add_row(country = "england")
 
 # pull and change to lowercase
 UN_countries <- pull(UN_countries, country) %>%
@@ -398,11 +402,8 @@ kwic_destroyed <- kwic(data_tokens, pattern = "destroyed")
 
 kwic_peace <- kwic(data_tokens, pattern = "peace")
 
-kwic_thankyou <- kwic(data_tokens, pattern = phrase("thank you"))
-
-kwic_iamgratefulto <- kwic(data_tokens, pattern = phrase("i am grateful to"))
-
 kwic_heroofukraine <- kwic(data_tokens, pattern = phrase("hero of ukraine"))
+
 
 # loss --------------------------------------------------------------------
 
@@ -416,11 +417,19 @@ loss2 <- data_words_cleaned[grepl("killed", data_words_cleaned$word)]
 
 # grateful ----------------------------------------------------------------
 
+# kwic for "i am grateful to"
+kwic_iamgratefulto <- kwic(data_tokens, 
+                           pattern = phrase("i am grateful to"),
+                           window = 15)
+
 # convert kwic results to tbl and add docvars
 grateful <- kwic_iamgratefulto %>%
   as_tibble() %>%
   select(!c(from, to, pattern)) %>%
   full_join(data_corpus_tbl, by = c("docname" = "doc_id"))
+
+# export for other tools
+write_csv(grateful, file = 'data/grateful.csv')
 
 # # combine pre and post words into one string
 # grateful_combined <- grateful %>%
@@ -440,14 +449,49 @@ grateful_tokens_clean <- grateful_tokens %>%
   anti_join(get_stopwords())
 
 # most frequent words
-grateful_tokens_clean %>%
+grateful_post_count <- grateful_tokens_clean %>%
+  count(word, sort = TRUE)
+
+# export for other tools
+write_csv(grateful_post_count, file = 'data/grateful_post_count.csv')
+
+# check bigrams
+grateful_bigrams <- textstat_collocations(kwic_iamgratefulto$post,
+                                          min_count = 1,
+                                          size = 2)
+
+# convert bigram to tbl
+grateful_bigrams_tbl <- grateful_bigrams %>%
+  as_tibble()
+
+# export for other tools
+write_csv(grateful_bigrams_tbl, file = 'data/grateful_bigrams.csv')
+
+
+
+# filter for speeches that match country list
+grateful_countries <- grateful_tokens_clean %>%
+  filter(word %in% UN_countries)
+
+# count of countries
+grateful_countries_counts <- grateful_countries %>%
+  count(word, sort = TRUE)
+
+# plot of top 10 most common countries
+data_countries %>%
   count(word, sort = TRUE) %>%
-  print(n = 100)
-
-
+  slice(1:10) %>%
+  ggplot(aes(x = reorder(word, -n), y = n)) +
+  geom_col() +
+  theme_minimal()
 
 
 # thank you ---------------------------------------------------------------
+
+# kwic for "thank you"
+kwic_thankyou <- kwic(data_tokens, 
+                      pattern = phrase("thank you"),
+                      window = 20)
 
 # convert kwic results to tbl and add docvars
 thankyou <- kwic_thankyou %>%
@@ -455,10 +499,8 @@ thankyou <- kwic_thankyou %>%
   select(!c(from, to, pattern)) %>%
   full_join(data_corpus_tbl, by = c("docname" = "doc_id"))
 
-# # combine pre and post words into one string
-# grateful_combined <- grateful %>%
-#   mutate(combined = paste(pre, post, sep = " ")) %>%
-#   select(id, date, id_day, combined, keyword)
+# export for other tools
+write_csv(thankyou, file = 'data/thankyou.csv')
 
 # create tokens from post words
 thankyou_tokens <- thankyou %>%
@@ -473,10 +515,44 @@ thankyou_tokens_clean <- thankyou_tokens %>%
   anti_join(get_stopwords())
 
 # most frequent words
-thankyou_tokens_clean %>%
-  count(word, sort = TRUE) %>%
-  print(n = 100)
+thankyou_post_count <- thankyou_tokens_clean %>%
+  count(word, sort = TRUE)
 
+# export for other tools
+write_csv(thankyou_post_count, file = 'data/thankyou_post_count.csv')
+
+# check bigrams
+thankyou_bigrams <- textstat_collocations(kwic_thankyou$post,
+                                          min_count = 1,
+                                          size = 2)
+
+# convert bigram to tbl
+thankyou_bigrams_tbl <- thankyou_bigrams %>%
+  as_tibble()
+
+# export for other tools
+write_csv(thankyou_bigrams_tbl, file = 'data/thankyou_bigrams.csv')
+
+# filter for speeches that match country list
+thankyou_countries <- thankyou_tokens_clean %>%
+  filter(word %in% UN_countries)
+
+# count of countries
+thankyou_countries_counts <- thankyou_countries %>%
+  count(word, sort = TRUE)
+
+# plot of top 10 most common countries
+thankyou_countries_counts %>%
+  count(word, sort = TRUE) %>%
+  slice(1:10) %>%
+  ggplot(aes(x = reorder(word, -n), y = n)) +
+  geom_col() +
+  theme_minimal()
+
+# kwic post "for" from "thank you" kwic
+kwic_thankyou_for_post <- kwic(tokens(kwic_thankyou$post), 
+                      pattern = "for",
+                      window = 10)
 
 # russian -----------------------------------------------------------------
 
