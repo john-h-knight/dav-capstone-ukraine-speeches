@@ -1,11 +1,3 @@
-# Title: Collection of President Zelenskyy's Speeches
-# By: John Knight
-# About:
-# This script has two main parts. The first scrapes the link to each speech
-# off the speech list. The second then uses that list of links to scrape the
-# timestamp and body of each speech.
-# Dates: 24 Feb 2022 - 08 July 2023 (500 days)
-
 library(tidyverse)
 library(rvest)
 library(polite)
@@ -151,13 +143,10 @@ page_df <- page_df_ALL %>%
 # inspect
 page_df
 
-# export
-write_csv(page_df, file = 'data/speeches_500_days.csv')
 
 
+# references --------------------------------------------------------------
 
-
-# references
 # https://rvest.tidyverse.org/index.html
 # https://dmi3kno.github.io/polite/
 # https://www.r-bloggers.com/2020/05/intro-to-polite-web-scraping-of-soccer-data-with-r/
