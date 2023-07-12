@@ -2,6 +2,7 @@ library(tidyverse)
 library(tidytext)
 library(quanteda)
 library(stopwords)
+library(writexl)
 
 # wrangle -----------------------------------------------------------------
 
@@ -76,7 +77,7 @@ docvars <- corpus %>%
 # thank you ---------------------------------------------------------------
 
 # kwic for "thank you"
-thank_you_kwic <- kwic(tokens, pattern = phrase("thank you"), window = 20)
+thank_you_kwic <- kwic(tokens, pattern = phrase("thank you"), window = 25)
 
 # convert kwic results to tbl and add docvars
 thank_you <- thank_you_kwic %>%
@@ -86,3 +87,5 @@ thank_you <- thank_you_kwic %>%
 
 # export for other tools
 write_csv(thank_you, file = 'data/thank_you.csv')
+
+write_xlsx(thank_you, path = 'data/thank_you.xlsx')
