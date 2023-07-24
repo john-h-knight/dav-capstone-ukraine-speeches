@@ -1,173 +1,652 @@
+# packages ----------------------------------------------------------------
+
 library(tidyverse)
 library(tidytext)
 library(quanteda)
 library(stopwords)
-library(writexl)
+library(quanteda.textplots)
+library(spacyr)
+library(broom)
+library(plotly)
+library(sysfonts)
 
 # wrangle -----------------------------------------------------------------
 
-# save as new object
-data <- page_df
+# save as new object, from collection v2
+data_paragraphs <- page_df_no_collapse
 
 # split timestamp into separate date and time columns
-data[c('date', 'time')] <- str_split_fixed(data$timestamp, " - ", 2)
-
-# drop timestamp and rearrange columns
-data <- data %>%
-  select(!timestamp) %>%
-  relocate(date, time, .before = title)
+data_paragraphs[c('date', 'time')] <- str_split_fixed(
+  data_paragraphs$timestamp, " - ", 2)
 
 # parse date
-data$date <- dmy(data$date)
+data_paragraphs$date <- dmy(data_paragraphs$date)
 
 # parse time
-data$time <- hm(data$time)
+data_paragraphs$time <- hm(data_paragraphs$time)
 
-# rearrange columns then arrange by date
-data <- data %>%
+# drop timestamp and rearrange columns
+data_paragraphs <- data_paragraphs %>%
   select(!timestamp) %>%
-  relocate(speech, .after = time) %>%
+  relocate(date, time, .before = title) %>%
   arrange(date, time)
 
 # inspect
-str(data)
+str(data_paragraphs)
 
-# remove rows 653, 681, 690, 695 because they aren't in english
-data <- data[-c(653, 681, 690, 695),]
+# remove speeches that aren't in english
+data_paragraphs <- data_paragraphs[-c(c(19775:19820), 
+                                      c(20441:20520), 
+                                      c(20746:20776), 
+                                      c(20891:20923)
+                                      ), 
+                                   ]
 
-# add id number, represents overall speech number
-data <- data %>%
-  rowid_to_column(var = "id")
+# assign id number to each speech
+data_paragraphs <- data_paragraphs %>%
+  group_by(date, time) %>%
+  mutate(id = cur_group_id()) %>%
+  ungroup() %>%
+  relocate(id, .before = paragraph)
 
-# add id_day number, represents speech number for a given day
-data <- data %>%
+# # export for other tools
+# write_csv(data_paragraphs, file = 'data/speeches_paragraphs.csv')
+
+# collapse paragraph strings into one string per speech
+# and add id_day number
+data_collapsed <- data_paragraphs %>%
+  group_by(id) %>%
+  mutate(speech = paste0(text, collapse = " ")) %>%
+  ungroup() %>%
+  filter(paragraph == 2) %>%
+  select(!c(paragraph, text)) %>%
+  rename(text = speech) %>%
   group_by(date) %>%
   mutate(id_day = 1:n()) %>%
-  relocate(id_day, .after = date) %>%
+  relocate(id_day, .after = id) %>%
   ungroup()
 
 # export for other tools
-write_csv(data, file = 'data/speeches_500_days.csv')
+write_csv(data_collapsed, file = 'data/speeches_collapsed.csv')
 
+# meta --------------------------------------------------------------------
 
-# tidytext ----------------------------------------------------------------
+# use tidytext to unnest tokens as words
+data_words <- unnest_tokens(data_collapsed, 
+                            output = word, 
+                            input = text) 
 
-# unnest single words from speech and place in own row
-data_tidy <- data %>%
-  select(id, date, id_day, speech) %>%
-  unnest_tokens(output = word,
-                input = speech,
-                token = "words",
-                to_lower = TRUE,
-                drop = TRUE
-  )
+# word count per speech
+speeches_meta <- data_words %>%
+  group_by(id, id_day) %>%
+  count() %>%
+  ungroup() %>%
+  select(!id_day) %>%
+  right_join(data_collapsed, by = "id") %>%
+  relocate(id_day, .after = id) %>%
+  relocate(n, .before = text)
 
 # # remove stop words
-# data_tidy_clean <- data_tidy %>%
-#   anti_join(get_stopwords())
+# data_words_clean <- data_words %>%
+#   anti_join(stop_words)
 # 
-# # most common words
-# data_tidy_clean %>%
-#   count(word, sort = TRUE)
+# # bing library has 6786 words (afinn library has 2477 words)
+# bing <- get_sentiments("bing")
 # 
-# # plot top 10 most common words
-# data_tidy_clean %>%
-#   count(word, sort = TRUE) %>%
-#   slice(1:10) %>%
-#   ggplot(aes(x = reorder(word, -n), y = n)) +
-#   geom_col() +
-#   theme_minimal()
+# # calculate net sentiment score for each speech
+# data_sentiment <- data_words_clean %>%
+#   inner_join(bing,
+#              by = "word",
+#              relationship = "many-to-many"
+#   ) %>%
+#   count(id, date, id_day, sentiment) %>%
+#   pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
+#   mutate(sentiment = positive - negative)
 
-# corpus ------------------------------------------------------------------
+# # top words
+# data_words %>%
+#   count(word, sort = TRUE) %>%
+#   print(n = 25)
+# 
+# # top words clean
+# data_words_clean %>%
+#   count(word, sort = TRUE) %>%
+#   print(n = 25)
+
+# corpus and parse --------------------------------------------------------
 
 # create a corpus
-corpus <- data %>%
-  select(id, date, id_day, speech) %>%
-  corpus(text_field = "speech")
+corpus <- data_collapsed %>%
+  select(!c(time, title)) %>%
+  corpus(text_field = "text")
 
-# verify docvars
-docvars(corpus)
-
-# create tokens from corpus
-tokens <- tokens(corpus, remove_punct = FALSE) %>%
-  tokens_tolower()
-
-# remove stopwords
-tokens_nostop <- tokens_remove(tokens, pattern = stopwords("en"))
-
-# convert corpus to tibble for joining the docvars with the KWIC tibbles
-docvars <- corpus %>%
+# convert corpus to tibble to check doc_id
+corpus_tbl <- corpus %>%
   convert(to = "data.frame") %>%
   as_tibble() %>%
   select(!text)
 
-# thank you ---------------------------------------------------------------
+# initialize prior to running any spacyr functions
+spacy_initialize()
 
-# kwic for "thank you"
-thank_you_kwic <- kwic(tokens, pattern = phrase("thank you"), window = 30)
+# tokenize and annotate
+parsed <- spacy_parse(corpus,
+                      pos = TRUE,
+                      tag = FALSE,
+                      lemma = TRUE,
+                      entity = TRUE,
+                      dependency = FALSE,
+                      nounphrase = TRUE,
+                      additional_attributes = c("is_punct", "is_stop")
+                      )
 
-# convert kwic results to tbl and add docvars
-thank_you <- thank_you_kwic %>%
+# convert to tbl
+parsed_tbl <- parsed %>%
+  as_tibble()
+  
+# finalize if done with spacy
+spacy_finalize()
+
+# sentiment ---------------------------------------------------------------
+
+# download the afinn sentiment library
+afinn <- get_sentiments("afinn") %>%
   as_tibble() %>%
-  select(!c(from, to, pattern)) %>%
-  full_join(docvars, by = c("docname" = "doc_id"))
+  rename(sentiment = value)
 
-# subset rows that have "for" in the post column
-thank_you_for <- thank_you[grepl("for", thank_you$post), ]
+# calculate sentence length
+sentence_length <- parsed_tbl %>%
+  filter(!c(pos %in% c("PUNCT", "SPACE", "NUM"))) %>%
+  filter(!token %in% c("%", "&", "-")) %>%
+  group_by(doc_id, sentence_id) %>%
+  summarize(n_words = n(), .groups = "drop") %>%
+  group_by(doc_id) %>%
+  summarize(mean_sentence_length = mean(n_words),
+            n_sentences = n()) %>%
+  left_join(corpus_tbl %>% select(doc_id, id, date),
+            by = "doc_id") %>%
+  relocate(id, date, .after = doc_id) %>%
+  arrange(id)
+
+# calculate sentence sentiment and add sentence length
+sentiment <- parsed_tbl %>%
+  # join sentiments
+  left_join(afinn, by = c("lemma"= "word")) %>%
+  group_by(doc_id, sentence_id) %>%
+  # if there is no sentiment in the sentence, I make the sentiment 0.
+  mutate(sentiment = ifelse(is.na(sentiment), 0, sentiment)) %>%
+  # calculate the mean sentiment per sentence
+  summarize(sentiment_mean = mean(sentiment, na.rm =T), .groups = "drop") %>%
+  group_by(doc_id) %>%
+  # split text into quintiles
+  arrange(doc_id, sentence_id) %>%
+  mutate(section = ntile(sentence_id, 5)) %>%
+  # calculate the mean sentiment per quintiles
+  group_by(doc_id, section) %>%
+  summarize(mean_sep = mean(sentiment_mean)) %>%
+  # spread the results from a long to a wide format
+  pivot_wider(values_from  = mean_sep,
+              names_from = section,
+              names_prefix = "section_") %>%
+  # compare the mean of the first 4 section to the last section
+  mutate(diff_sec_sec1_4 = section_5 - mean(c(section_1,section_2, section_3, section_4) )) %>%
+  ungroup() %>%
+  # add sentence length statistics
+  right_join(sentence_length, by = "doc_id") %>%
+  arrange(date) %>%
+  # select columns
+  select(doc_id, id, date, n_sentences, mean_sentence_length, section_1:diff_sec_sec1_4) %>%
+  # round values
+  mutate(across(where(is.numeric),  ~round(., 4)))
+
+# define color functions for text highlighting
+colfunc_red <- colorRampPalette(c("#ff5252","#a70000"))
+colfunc_green <- colorRampPalette(c("#A3D12D","#086D44"))
+
+# get text data and use html tags to colour words green or red
+text <- parsed_tbl %>%
+  left_join(afinn, by = c("lemma"= "word")) %>%
+  mutate(sentiment = ifelse(is.na(sentiment), 0, sentiment)) %>%
+  mutate(token_colour = ifelse(sentiment < 0,
+                               paste0('<span style="color:',
+                                      colfunc_red(abs(min(sentiment)))[abs(sentiment)],
+                                      ';"><b>',  token,'</b></span>'),
+                               ifelse(sentiment > 0,
+                                      paste0('<span style="color:',
+                                             colfunc_green(abs(max(sentiment)))[abs(sentiment)],
+                                             ';"><b>', token,'</b></span>'),
+                                      token))) %>%
+  mutate(nchar_token = nchar(token)) %>%
+  group_by(doc_id, sentence_id) %>%
+  arrange(sentence_id) %>%
+  # I also want to break up long sentences
+  mutate(nchar_token_cum = cumsum(nchar_token)) %>%
+  mutate(split = which.min(abs(nchar_token_cum - 60))) %>%
+  mutate(split2 = which.min(abs(nchar_token_cum - 120))) %>%
+  mutate(split3 = which.min(abs(nchar_token_cum - 180))) %>%
+  mutate(split4 = which.min(abs(nchar_token_cum - 240))) %>%
+  mutate(token_colour = ifelse(token_id == split & max(nchar_token_cum) >=120 ,
+                               paste0(token_colour, "<br>"),
+                               token_colour)) %>%
+  mutate(token_colour = ifelse(token_id == split2 & max(nchar_token_cum) >=120 ,
+                               paste0(token_colour, "<br>"),
+                               token_colour)) %>%
+  mutate(token_colour = ifelse(token_id == split3 & max(nchar_token_cum) >=180 ,
+                               paste0(token_colour, "<br>"),
+                               token_colour)) %>%
+  mutate(token_colour = ifelse(token_id == split4 & max(nchar_token_cum) >=240 ,
+                               paste0(token_colour, "<br>"),
+                               token_colour)) %>%
+  # Now I have added the colours to the words I can collapse them back into sentences
+  summarise(collapsed_sentence = paste0(token_colour, collapse=" ")) %>%
+  mutate(# delete space before comma
+    collapsed_sentence = gsub(" ,", ",", collapsed_sentence),
+    # delete space before full stop
+    collapsed_sentence = gsub(" \\.", ".", collapsed_sentence),
+    # delete space before exclamation point
+    collapsed_sentence = gsub(" !", "!", collapsed_sentence),
+    # delete space around hyphens
+    collapsed_sentence = gsub(" - ", "-", collapsed_sentence),
+    # delete space around brackets
+    collapsed_sentence = gsub("\\( ", "(", collapsed_sentence),
+    # delete space around brackets
+    collapsed_sentence = gsub(" \\)", ")", collapsed_sentence)) %>%
+  ungroup() %>%
+  # Now I just add the dates to the speeches
+  left_join(sentence_length %>% select(doc_id, id, date), by = "doc_id")
+
+dat <- parsed_tbl %>%
+  filter(!c(pos %in% c("PUNCT", "SPACE", "NUM"))) %>%
+  filter(!token %in% c("%", "&", "-"))  %>%
+  left_join(afinn, by = c("lemma"= "word")) %>%
+  group_by(doc_id, sentence_id) %>%
+  mutate(sentiment = ifelse(is.na(sentiment), 0, sentiment)) %>%
+  summarise(sentiment_mean = mean(sentiment, na.rm = T), .groups = "drop") %>%
+  group_by(doc_id) %>%
+  group_by(doc_id, sentence_id) %>%
+  nest(data = -doc_id) %>%
+  # use combination of map and augment to get the fitted values of the Loess regression
+  mutate(
+    fit = map(data, ~ loess(sentiment_mean ~ sentence_id,
+                            data = .x,
+                            span = 0.5)),
+    augmented = map(fit, augment)) %>%
+  # unnest the datasets per speech into one big dataset
+  unnest(augmented)  %>%
+  select(-data, - fit, - .resid) %>%
+  ungroup()
+
+# combine the text and speech data
+dat2 <- left_join(dat, text, by = c("sentence_id", "doc_id" )) %>%
+  mutate(doc_id = paste0(doc_id, " (", date, ")")) %>%
+  # order speeches
+  arrange(id, sentence_id)
+
+# subset for testing
+dat2_subset <- dat2 %>%
+  filter(!(doc_id == "text746 (2023-06-28)"))
 
 # export for other tools
-write_csv(thank_you_for, file = 'data/thank_you_for.csv')
+dat2 %>%
+  select(sentence_id, .fitted, id, date) %>%
+  relocate(id, date, .before = sentence_id) %>%
+  write_csv(file = 'data/speeches_sentiment.csv')
 
-write_xlsx(thank_you_for, path = 'data/thank_you_for.xlsx')
+# create a color palette from the colours of the Ghanaian coat of arms
+colfunc <- colorRampPalette(c("#CE1126","#FCD116","#006B3F", "#0193DD", "#000000"))
+
+# I need this font for some of the plots
+font_add_google(name = "Raleway", regular.wt = 300)
+
+# now all of this can be combined into a plotly plot
+fig3 <- plot_ly(data = dat2,
+                type = 'scatter',
+                mode = "lines",
+                color = ~doc_id,
+                sort = FALSE,
+                colors = colfunc(11),
+                opacity = 0.75) %>%
+  add_trace(
+    y = ~.fitted,
+    x = ~sentence_id,
+    text = ~collapsed_sentence,
+    hoverinfo = 'text',
+    hoverlabel = list(  bgcolor = "white",
+                        opacity = 0.5,
+                        size = 7,
+                        font= list(family = 'Raleway'),
+                        align = "left",
+                        line = list(
+                          opacity = 0.9,
+                          width = 3)),
+    showlegend = T)  %>%
+  layout(title = list(text = "<b>Sentiment of Speeches by President Zelenskyy</b><br><sup>Speeches vary in length, but most end on a positive note.</sup>",
+                      x =0.05,
+                      xanchor = "left",
+                      automargin = TRUE),
+         font = list(color = '#706f6f',
+                     family = 'Raleway',
+                     size = 14),
+         xaxis = list(title = "Sentence number",
+                      showspikes = TRUE,
+                      spikemode  = 'toaxis',
+                      spikesnap = 'data',
+                      showline = TRUE,
+                      showgrid = FALSE,
+                      showticklabels = TRUE,
+                      linecolor = '#706f6f',
+                      linewidth = 2,
+                      autotick = TRUE,
+                      ticks = 'outside',
+                      tickcolor = '#706f6f',
+                      tickwidth = 2,
+                      ticklen = 5,
+                      tickfont = list(family = 'Raleway',
+                                      size = 12,
+                                      color = '#706f6f')),
+         yaxis = list(title = "Average sentence sentiment (smoothed)",
+                      showline = TRUE,
+                      showgrid = FALSE,
+                      showticklabels = TRUE,
+                      linecolor = '#706f6f',
+                      linewidth = 2,
+                      autotick = TRUE,
+                      ticks = 'outside',
+                      tickcolor = '#706f6f',
+                      tickwidth = 2,
+                      ticklen = 5,
+                      tickfont = list(family = 'Raleway',
+                                      size = 12,
+                                      color = '#706f6f')),
+         legend = list(title = list(text = "<b>Speeches</b><br><sup>(double click on a speech to isolate it and hover over lines to see text)</sup>"),
+                       x = 0, y = -3.8,
+                       xanchor = "left"),
+         autosize = T,
+         margin = list(t = 100),
+         showlegend = TRUE) %>%
+  add_annotations( x = 1,
+                   y = -0.05,
+                   xanchor = "left",
+                   showarrow = F,
+                   align = "left",
+                   text=  '<span style="color:#a70000;"><b>Negative values signify<br>negative sentiment</b></span>') %>%
+  add_annotations( x = 1,
+                   y = 0.3,
+                   xanchor = "left",
+                   showarrow = F,
+                   align = "left",
+                   text=  '<span style="color:#A3D12D;"><b>Positive values signify<br>positive sentiment</b></span>') %>%
+  config(displayModeBar = FALSE)
+
+fig3
 
 
-# thank -------------------------------------------------------------------
 
-# # kwic for thank
-# thank_kwic <- kwic(tokens,
-#                    pattern = "thank",
-#                    window = 15)
+# sentiment as sum --------------------------------------------------------
+
+# I tried using the sum of the sentence sentiment rather than the mean
+# of the sentence sentiment. It didn't make a huge difference. The chart
+# was noisier in the lower sentence numbers, but the pattern was largely the
+# same. I don't think it matters because it's about comparing the speeches
+# to each other so it's less important what math is applied.
+
+# sentiment_sum <- parsed_tbl %>%
+#   # join sentiments
+#   left_join(afinn, by = c("lemma"= "word")) %>%
+#   group_by(doc_id, sentence_id) %>%
+#   # if there is no sentiment in the sentence, I make the sentiment 0.
+#   mutate(sentiment = ifelse(is.na(sentiment), 0, sentiment)) %>%
+#   # calculate the cumulative sentiment per sentence
+#   summarize(sentiment_sum = sum(sentiment, na.rm =T), .groups = "drop") %>%
+#   group_by(doc_id) %>%
+#   # split text into quintiles
+#   arrange(doc_id, sentence_id) %>%
+#   mutate(section = ntile(sentence_id, 5)) %>%
+#   # calculate the mean sentiment per quintiles
+#   group_by(doc_id, section) %>%
+#   summarize(mean_sep = mean(sentiment_sum)) %>%
+#   # spread the results from a long to a wide format
+#   pivot_wider(values_from  = mean_sep,
+#               names_from = section,
+#               names_prefix = "section_") %>%
+#   # compare the mean of the first 4 section to the last section
+#   mutate(diff_sec_sec1_4 = section_5 - mean(c(section_1,section_2, section_3, section_4) )) %>%
+#   ungroup() %>%
+#   # add sentence length statistics
+#   right_join(sentence_length, by = "doc_id") %>%
+#   arrange(date) %>%
+#   # select columns
+#   select(doc_id, id, date, n_sentences, mean_sentence_length, section_1:diff_sec_sec1_4) %>%
+#   # round values
+#   mutate(across(where(is.numeric),  ~round(., 4)))
 # 
-# # convert kwic results to tbl and add docvars
-# # note that nrow increased due to NAs from speeches without "thank"
-# thank <- thank_kwic %>%
-#   as_tibble() %>%
-#   select(!c(from, to, pattern)) %>%
-#   full_join(docvars, by = c("docname" = "doc_id"))
+# # define color functions for text highlighting
+# colfunc_red <- colorRampPalette(c("#ff5252","#a70000"))
+# colfunc_green <- colorRampPalette(c("#A3D12D","#086D44"))
 # 
-# # search for "for" in post
-# thank_for <- thank[grepl("for", thank$post), ]
+# # get text data and use html tags to colour words green or red
+# text <- parsed_tbl %>%
+#   left_join(afinn, by = c("lemma"= "word")) %>%
+#   mutate(sentiment = ifelse(is.na(sentiment), 0, sentiment)) %>%
+#   mutate(token_colour = ifelse(sentiment < 0,
+#                                paste0('<span style="color:',
+#                                       colfunc_red(abs(min(sentiment)))[abs(sentiment)],
+#                                       ';"><b>',  token,'</b></span>'),
+#                                ifelse(sentiment > 0,
+#                                       paste0('<span style="color:',
+#                                              colfunc_green(abs(max(sentiment)))[abs(sentiment)],
+#                                              ';"><b>', token,'</b></span>'),
+#                                       token))) %>%
+#   mutate(nchar_token = nchar(token)) %>%
+#   group_by(doc_id, sentence_id) %>%
+#   arrange(sentence_id) %>%
+#   # I also want to break up long sentences
+#   mutate(nchar_token_cum = cumsum(nchar_token)) %>%
+#   mutate(split = which.min(abs(nchar_token_cum - 60))) %>%
+#   mutate(split2 = which.min(abs(nchar_token_cum - 120))) %>%
+#   mutate(split3 = which.min(abs(nchar_token_cum - 180))) %>%
+#   mutate(split4 = which.min(abs(nchar_token_cum - 240))) %>%
+#   mutate(token_colour = ifelse(token_id == split & max(nchar_token_cum) >=120 ,
+#                                paste0(token_colour, "<br>"),
+#                                token_colour)) %>%
+#   mutate(token_colour = ifelse(token_id == split2 & max(nchar_token_cum) >=120 ,
+#                                paste0(token_colour, "<br>"),
+#                                token_colour)) %>%
+#   mutate(token_colour = ifelse(token_id == split3 & max(nchar_token_cum) >=180 ,
+#                                paste0(token_colour, "<br>"),
+#                                token_colour)) %>%
+#   mutate(token_colour = ifelse(token_id == split4 & max(nchar_token_cum) >=240 ,
+#                                paste0(token_colour, "<br>"),
+#                                token_colour)) %>%
+#   # Now I have added the colours to the words I can collapse them back into sentences
+#   summarise(collapsed_sentence = paste0(token_colour, collapse=" ")) %>%
+#   mutate(# delete space before comma
+#     collapsed_sentence = gsub(" ,", ",", collapsed_sentence),
+#     # delete space before full stop
+#     collapsed_sentence = gsub(" \\.", ".", collapsed_sentence),
+#     # delete space before exclamation point
+#     collapsed_sentence = gsub(" !", "!", collapsed_sentence),
+#     # delete space around hyphens
+#     collapsed_sentence = gsub(" - ", "-", collapsed_sentence),
+#     # delete space around brackets
+#     collapsed_sentence = gsub("\\( ", "(", collapsed_sentence),
+#     # delete space around brackets
+#     collapsed_sentence = gsub(" \\)", ")", collapsed_sentence)) %>%
+#   ungroup() %>%
+#   # Now I just add the dates to the speeches
+#   left_join(sentence_length %>% select(doc_id, id, date), by = "doc_id")
+# 
+# dat_sum <- parsed_tbl %>%
+#   filter(!c(pos %in% c("PUNCT", "SPACE", "NUM"))) %>%
+#   filter(!token %in% c("%", "&", "-"))  %>%
+#   left_join(afinn, by = c("lemma"= "word")) %>%
+#   group_by(doc_id, sentence_id) %>%
+#   mutate(sentiment = ifelse(is.na(sentiment), 0, sentiment)) %>%
+#   summarise(sentiment_sum = sum(sentiment, na.rm =T), .groups = "drop") %>%
+#   group_by(doc_id) %>%
+#   group_by(doc_id, sentence_id) %>%
+#   nest(data = -doc_id) %>%
+#   # use combination of map and augment to get the fitted values of the Loess regression
+#   mutate(
+#     fit = map(data, ~ loess(sentiment_sum ~ sentence_id,
+#                             data = .x,
+#                             span = 0.5)),
+#     augmented = map(fit, augment)) %>%
+#   # unnest the datasets per speech into one big dataset
+#   unnest(augmented)  %>%
+#   select(-data, - fit, - .resid) %>%
+#   ungroup()
+# 
+# # combine the text and speech data
+# dat2_sum <- left_join(dat_sum, text, by = c("sentence_id", "doc_id" )) %>%
+#   mutate(doc_id = paste0(doc_id, " (", date, ")")) %>%
+#   # order speeches
+#   arrange(id, sentence_id)
+# 
+# # subset for testing
+# dat2_sum_subset <- dat2_sum %>%
+#   filter(!(doc_id == "text746 (2023-06-28)"))
+# 
+# # # export for other tools
+# # dat2_sum %>%
+# #   select(sentence_id, .fitted, id, date) %>%
+# #   relocate(id, date, .before = sentence_id) %>%
+# #   write_csv(file = 'data/speeches_sentiment_sum.csv')
+# 
+# # create a color palette from the colours of the Ghanaian coat of arms
+# colfunc <- colorRampPalette(c("#CE1126","#FCD116","#006B3F", "#0193DD", "#000000"))
+# 
+# # I need this font for some of the plots
+# font_add_google(name = "Raleway", regular.wt = 300)
+# 
+# # now all of this can be combined into a plotly plot
+# fig4 <- plot_ly(data = dat2_sum,
+#                 type = 'scatter',
+#                 mode = "lines",
+#                 color = ~doc_id,
+#                 sort = FALSE,
+#                 colors = colfunc(11),
+#                 opacity = 0.75) %>%
+#   add_trace(
+#     y = ~.fitted,
+#     x = ~sentence_id,
+#     text = ~collapsed_sentence,
+#     hoverinfo = 'text',
+#     hoverlabel = list(  bgcolor = "white",
+#                         opacity = 0.5,
+#                         size = 7,
+#                         font= list(family = 'Raleway'),
+#                         align = "left",
+#                         line = list(
+#                           opacity = 0.9,
+#                           width = 3)),
+#     showlegend = T)  %>%
+#   layout(title = list(text = "<b>Sentiment of Speeches by President Zelenskyy</b><br><sup>Speeches vary in length, but most end on a positive note.</sup>",
+#                       x =0.05,
+#                       xanchor = "left",
+#                       automargin = TRUE),
+#          font = list(color = '#706f6f',
+#                      family = 'Raleway',
+#                      size = 14),
+#          xaxis = list(title = "Sentence number",
+#                       showspikes = TRUE,
+#                       spikemode  = 'toaxis',
+#                       spikesnap = 'data',
+#                       showline = TRUE,
+#                       showgrid = FALSE,
+#                       showticklabels = TRUE,
+#                       linecolor = '#706f6f',
+#                       linewidth = 2,
+#                       autotick = TRUE,
+#                       ticks = 'outside',
+#                       tickcolor = '#706f6f',
+#                       tickwidth = 2,
+#                       ticklen = 5,
+#                       tickfont = list(family = 'Raleway',
+#                                       size = 12,
+#                                       color = '#706f6f')),
+#          yaxis = list(title = "Average sentence sentiment (smoothed)",
+#                       showline = TRUE,
+#                       showgrid = FALSE,
+#                       showticklabels = TRUE,
+#                       linecolor = '#706f6f',
+#                       linewidth = 2,
+#                       autotick = TRUE,
+#                       ticks = 'outside',
+#                       tickcolor = '#706f6f',
+#                       tickwidth = 2,
+#                       ticklen = 5,
+#                       tickfont = list(family = 'Raleway',
+#                                       size = 12,
+#                                       color = '#706f6f')),
+#          legend = list(title = list(text = "<b>Speeches</b><br><sup>(double click on a speech to isolate it and hover over lines to see text)</sup>"),
+#                        x = 0, y = -3.8,
+#                        xanchor = "left"),
+#          autosize = T,
+#          margin = list(t = 100),
+#          showlegend = TRUE) %>%
+#   add_annotations( x = 1,
+#                    y = -0.05,
+#                    xanchor = "left",
+#                    showarrow = F,
+#                    align = "left",
+#                    text=  '<span style="color:#a70000;"><b>Negative values signify<br>negative sentiment</b></span>') %>%
+#   add_annotations( x = 1,
+#                    y = 0.3,
+#                    xanchor = "left",
+#                    showarrow = F,
+#                    align = "left",
+#                    text=  '<span style="color:#A3D12D;"><b>Positive values signify<br>positive sentiment</b></span>') %>%
+#   config(displayModeBar = FALSE)
+# 
+# fig4
+
+# countries ---------------------------------------------------------------
+
+# # use tidytext to remove stop words
+# parsed_clean <- unnest_tokens(parsed, output = word, input = token) %>%
+#   anti_join(stop_words)
+# 
+# # save as tibble
+# parsed_clean_tbl <- parsed_clean %>%
+#   as_tibble()
+# 
+# # check counts of each category of entity
+# parsed_clean_tbl %>%
+#   count(entity, sort = TRUE) %>%
+#   print(n = 35)
+# 
+# # filter for GPE entities (countries, cities, states)
+# GPE <- parsed_clean_tbl %>%
+#   filter(entity %in% c("GPE_B", "GPE_I")) %>%
+#   count(word, sort = TRUE)
 # 
 # # export for other tools
-# write_csv(thank_for, file = 'data/thank_for.csv')
-# 
-# write_xlsx(thank_for, path = 'data/thank_for.xlsx')
-# 
-# # kwic post "for" from "thank" kwic
-# for_kwic <- kwic(tokens(thank_kwic$post),
-#                                pattern = "for",
-#                                window = 15)
+# write_csv(GPE, file = 'data/GPE.csv')
 
-# thank* ------------------------------------------------------------------
+# countries v2 ------------------------------------------------------------
 
-# # kwic for "thank" as beginning
-# thank_wc_kwic <- kwic(tokens,
-#                       pattern = "thank.*",
-#                       valuetype = "regex",
-#                       window = 10)
-# 
-# # convert kwic results to tbl and add docvars
-# thank_wc <- thank_wc_kwic %>%
-#   as_tibble() %>%
-#   select(!c(from, to, pattern)) %>%
-#   full_join(docvars, by = c("docname" = "doc_id"))
-# 
-# # forms of thank*
-# thank_wc %>%
-#   count(keyword, sort = TRUE)
-# 
-# thank_wc %>%
-#   filter(keyword == "thanked")
-# 
-# thank_wc %>%
-#   filter(keyword == "thanks")
+# initialize prior to running any spacyr functions
+spacy_initialize()
+
+# consolidate multi-word entities into one token for easier identification
+ent_consolidated <- entity_consolidate(parsed, concatenator = " ")
+
+# filter for GPE entities (countries, cities, states)
+GPE <- ent_consolidated %>%
+  filter(entity_type == "GPE") %>%
+  count(token, sort = TRUE)
+
+# export for other tools
+write_csv(GPE, file = 'data/GPE.csv')
+
+# filter for ORG entities (companies, agencies, institutions)
+ORG <- ent_consolidated %>%
+  filter(entity_type == "ORG") %>%
+  count(token, sort = TRUE)
+
+# export for other tools
+write_csv(ORG, file = 'data/ORG.csv')
+
+# finalize if done with spacy
+spacy_finalize()

@@ -4,14 +4,6 @@ library(polite)
 
 # scrape links to each speech page ----------------------------------------
 
-# functions to scrape the list of speeches from /news/speeches
-list_timestamp_info <- function(session_list) {
-  
-  list_timestamp_info <- scrape(session_list) %>%
-    html_elements(".item_stat_headline p") %>%
-    html_text()
-}
-
 list_link_info <- function(session_list) {
   
   list_link_info <- scrape(session_list) %>% 
@@ -44,13 +36,11 @@ list_info <- function(link, page) {
   session_list <- bow(link)
   
   ## scrape different info
-  list_timestamp <- list_timestamp_info(session_list = session_list)
-  
   list_link <- list_link_info(session_list = session_list)
   
   ## combine info into a data frame
-  results <- list(list_timestamp, list_link)
-  col_names <- c("timestamp", "link") 
+  results <- list(list_link)
+  col_names <- c("link") 
   
   list <- results %>% 
     reduce(cbind) %>% 
@@ -92,12 +82,18 @@ page_timestamp_info <- function(session_page) {
     html_text()
 }
 
+page_title_info <- function(session_page) {
+  
+  page_title_info <- scrape(session_page) %>% 
+    html_element(".article h1") %>%
+    html_text()
+}
+
 page_speech_info <- function(session_page) {
   
   page_speech_info <- scrape(session_page) %>% 
     html_elements(".article_content p") %>%
-    html_text2() %>%
-    str_c(collapse = ", ")
+    html_text2()
 }
 
 # function to scrape data from each speech page
@@ -109,17 +105,17 @@ page_info <- function(link_page) {
   ## scrape different info
   page_timestamp <- page_timestamp_info(session_page = session_page)
   
+  page_title <- page_title_info(session_page = session_page)
+  
   page_speech <- page_speech_info(session_page = session_page)
   
   ## combine info into a data frame
-  results_page <- list(page_timestamp, page_speech)
-  col_names_page <- c("timestamp", "speech") 
-  
-  page <- results_page %>% 
-    reduce(cbind) %>% 
-    as_tibble() %>% 
-    set_names(col_names_page)
-  
+  page <- list(timestamp = page_timestamp,
+               title = page_title,
+               paragraph = 1:length(page_speech),
+               text = page_speech) %>%
+    as_tibble()
+
   return(page)
 }
 
@@ -136,12 +132,12 @@ page_df_ALL %>%
   purrr::discard(~is.null(.))
 
 # if no errors (list length of 0), combine into one df
-page_df <- page_df_ALL %>%
+page_df_no_collapse <- page_df_ALL %>%
   map("result") %>%
   bind_rows()
 
 # inspect
-page_df
+page_df_no_collapse
 
 
 
