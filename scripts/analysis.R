@@ -4,7 +4,6 @@ library(tidyverse)
 library(tidytext)
 library(quanteda)
 library(stopwords)
-library(quanteda.textplots)
 library(spacyr)
 library(broom)
 library(plotly)
@@ -84,34 +83,28 @@ speeches_meta <- data_words %>%
   select(!id_day) %>%
   right_join(data_collapsed, by = "id") %>%
   relocate(id_day, .after = id) %>%
-  relocate(n, .before = text)
+  relocate(n, .before = text) %>%
+  select(!c(title, text))
 
-# # remove stop words
-# data_words_clean <- data_words %>%
-#   anti_join(stop_words)
-# 
-# # bing library has 6786 words (afinn library has 2477 words)
-# bing <- get_sentiments("bing")
-# 
-# # calculate net sentiment score for each speech
-# data_sentiment <- data_words_clean %>%
-#   inner_join(bing,
-#              by = "word",
-#              relationship = "many-to-many"
-#   ) %>%
-#   count(id, date, id_day, sentiment) %>%
-#   pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
-#   mutate(sentiment = positive - negative)
+# export for other tools
+write_csv(speeches_meta, file = 'data/speeches_meta.csv')
 
-# # top words
-# data_words %>%
-#   count(word, sort = TRUE) %>%
-#   print(n = 25)
-# 
-# # top words clean
-# data_words_clean %>%
-#   count(word, sort = TRUE) %>%
-#   print(n = 25)
+# summarize
+speeches_meta %>%
+  summarize(mean = mean(n),
+            q25 = quantile(n, probs = 0.25),
+            median = median(n),
+            q75 = quantile(n, probs = 0.75)
+            )
+
+# boxplot of word count
+speeches_meta %>%
+  ggplot(aes(y = n)) +
+  geom_boxplot()
+
+speeches_meta %>%
+  ggplot(aes(x = n)) +
+  geom_density()
 
 # corpus and parse --------------------------------------------------------
 
@@ -147,12 +140,33 @@ parsed_tbl <- parsed %>%
 # finalize if done with spacy
 spacy_finalize()
 
-# sentiment ---------------------------------------------------------------
+# net sentiment -----------------------------------------------------------
 
 # download the afinn sentiment library
 afinn <- get_sentiments("afinn") %>%
   as_tibble() %>%
   rename(sentiment = value)
+
+# calculate net sentiment
+sentiment_net <- parsed_tbl %>%
+  # join sentiments
+  left_join(afinn, by = c("lemma"= "word")) %>%
+  group_by(doc_id, sentence_id) %>%
+  # if there is no sentiment in the sentence, I make the sentiment 0.
+  mutate(sentiment = ifelse(is.na(sentiment), 0, sentiment)) %>%
+  # calculate the net sentiment per sentence
+  summarize(sentence_sentiment = sum(sentiment, na.rm = T), .groups = "drop") %>%
+  group_by(doc_id) %>%
+  summarize(net_sentiment = sum(sentence_sentiment, na.rm = T), .groups = "drop") %>%
+  # add sentence length statistics
+  right_join(corpus_tbl, by = "doc_id") %>%
+  arrange(date) %>%
+  relocate(net_sentiment, .after = id_day)
+
+# export for other viz tools
+write_csv(sentiment_net, file = 'data/net_sentiment.csv')
+
+# sentiment trajectory ----------------------------------------------------
 
 # calculate sentence length
 sentence_length <- parsed_tbl %>%
@@ -603,50 +617,28 @@ fig3
 
 # countries ---------------------------------------------------------------
 
-# # use tidytext to remove stop words
-# parsed_clean <- unnest_tokens(parsed, output = word, input = token) %>%
-#   anti_join(stop_words)
+# # initialize prior to running any spacyr functions
+# spacy_initialize()
 # 
-# # save as tibble
-# parsed_clean_tbl <- parsed_clean %>%
-#   as_tibble()
-# 
-# # check counts of each category of entity
-# parsed_clean_tbl %>%
-#   count(entity, sort = TRUE) %>%
-#   print(n = 35)
+# # consolidate multi-word entities into one token for easier identification
+# ent_consolidated <- entity_consolidate(parsed, concatenator = " ")
 # 
 # # filter for GPE entities (countries, cities, states)
-# GPE <- parsed_clean_tbl %>%
-#   filter(entity %in% c("GPE_B", "GPE_I")) %>%
-#   count(word, sort = TRUE)
+# GPE <- ent_consolidated %>%
+#   filter(entity_type == "GPE") %>%
+#   count(token, sort = TRUE)
 # 
 # # export for other tools
 # write_csv(GPE, file = 'data/GPE.csv')
+# 
+# # filter for ORG entities (companies, agencies, institutions)
+# ORG <- ent_consolidated %>%
+#   filter(entity_type == "ORG") %>%
+#   count(token, sort = TRUE)
+# 
+# # export for other tools
+# write_csv(ORG, file = 'data/ORG.csv')
+# 
+# # finalize if done with spacy
+# spacy_finalize()
 
-# countries v2 ------------------------------------------------------------
-
-# initialize prior to running any spacyr functions
-spacy_initialize()
-
-# consolidate multi-word entities into one token for easier identification
-ent_consolidated <- entity_consolidate(parsed, concatenator = " ")
-
-# filter for GPE entities (countries, cities, states)
-GPE <- ent_consolidated %>%
-  filter(entity_type == "GPE") %>%
-  count(token, sort = TRUE)
-
-# export for other tools
-write_csv(GPE, file = 'data/GPE.csv')
-
-# filter for ORG entities (companies, agencies, institutions)
-ORG <- ent_consolidated %>%
-  filter(entity_type == "ORG") %>%
-  count(token, sort = TRUE)
-
-# export for other tools
-write_csv(ORG, file = 'data/ORG.csv')
-
-# finalize if done with spacy
-spacy_finalize()
