@@ -140,13 +140,3 @@ page_df_no_collapse <- page_df_ALL %>%
 
 # inspect
 page_df_no_collapse
-
-
-
-# references --------------------------------------------------------------
-
-# https://rvest.tidyverse.org/index.html
-# https://dmi3kno.github.io/polite/
-# https://www.r-bloggers.com/2020/05/intro-to-polite-web-scraping-of-soccer-data-with-r/
-# https://ladal.edu.au/webcrawling.html#Introduction
-# https://purrr.tidyverse.org/
